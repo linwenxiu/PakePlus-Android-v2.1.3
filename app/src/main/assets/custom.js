@@ -99,6 +99,72 @@ function preloadCss(cssKey) {
     isLoadingCss = true;
 }
 
+// ==============================================
+// 动态注入底部导航栏（必须添加，否则导航栏不显示）
+// ==============================================
+function injectBottomNav() {
+    // 避免重复注入
+    if (document.querySelector('.bottom-nav')) return;
+
+    // 创建导航栏容器
+    const bottomNav = document.createElement('div');
+    bottomNav.className = 'bottom-nav';
+
+    // 导航项配置（与CSS对应，路径需一致）
+    const navItems = [
+   {
+            className: 'bottom-nav-item nav-mine',
+            href: '#/apps/multistore/store/index', // 替换为你的我的页面路径
+            text: '首页'
+        },
+        {
+            className: 'bottom-nav-item nav-order',
+            href: '#/order/list/all', // 替换为你的订单页面路径
+            text: '订单'
+        },
+        {
+            className: 'bottom-nav-item nav-checkout',
+            href: '#/apps/multistore/settlement/overview/index', // 替换为你的结算页面路径
+            text: '结算'
+        }
+    ];
+
+    // 创建导航项并添加到容器
+    navItems.forEach(item => {
+        const a = document.createElement('a');
+        a.className = item.className;
+        a.href = item.href;
+        a.innerHTML = `
+            <span class="bottom-nav-icon"></span>
+            <span class="bottom-nav-text">${item.text}</span>
+        `;
+        // 阻止默认跳转（如果需要用Vue Router跳转）
+        a.addEventListener('click', function(e) {
+            e.preventDefault();
+            // 若使用Vue Router，添加路由跳转逻辑
+            if (window.$router) {
+                window.$router.push(item.href);
+            } else {
+                window.location.hash = item.href;
+            }
+        });
+        bottomNav.appendChild(a);
+    });
+
+    // 将导航栏添加到页面底部（body末尾）
+    document.body.appendChild(bottomNav);
+    console.log('底部导航栏注入成功');
+}
+
+// 在页面加载完成后注入导航栏
+if (isTargetDomain()) {
+    // 确保DOM加载完成
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        injectBottomNav();
+    } else {
+        document.addEventListener('DOMContentLoaded', injectBottomNav);
+    }
+}
 // ✅ 核心优化2：优化CSS加载逻辑（复用缓存，提升优先级）
 function loadCss(cssKey) {
     if (isLoadingCss || isCssLoaded ||!PAGE_CSS_MAP[cssKey]) return;
