@@ -16,6 +16,8 @@ const PAGE_CSS_MAP = {
     chooseStore: 'https://server.kexuny.cn/work/mdxz.css',
     shop: 'https://server.kexuny.cn/work/shop.css'
 };
+// 新增：远程shop.js地址
+const REMOTE_SHOP_JS_URL = 'https://server.kexuny.cn/work/shop.js';
 
 // 1. 域名校验（保持不变）
 function isTargetDomain() {
@@ -27,11 +29,11 @@ function isTargetDomain() {
     return isMatch;
 }
 
-// 2. 页面类型判断（保持不变）
+// 2. 页面类型判断（优化：处理hash变化后的路径解析）
 function getCurrentPageType() {
-    const pathname = window.location.pathname;
-    const hash = window.location.hash;
-    const currentFullPath = pathname + hash;
+    const pathname = window.location.pathname || '';
+    const hash = window.location.hash || '';
+    const currentFullPath = (pathname + hash).trim();
     
     if (window.lastPageFullPath!== currentFullPath) {
         console.log(`当前页面完整路径：${currentFullPath}`);
@@ -42,7 +44,7 @@ function getCurrentPageType() {
         return 'login';
     } else if (currentFullPath.includes('/account#/shops/chooseStore')) {
         return 'chooseStore';
-    } else if (pathname === '/shop' && (hash.startsWith('#/') || hash === '')) {
+    } else if (pathname === '/shop' || currentFullPath.includes('/shop#')) {
         return 'shop';
     } else {
         return 'unknown';
@@ -54,180 +56,232 @@ function isLoginPage() {
     return getCurrentPageType() === 'login';
 }
 
+// 新增：动态加载远程shop.js文件（避免重复加载+DOM就绪检查）
+function loadRemoteShopJs() {
+    if (!isTargetDomain()) return;
+    // 检查是否已加载
+    if (document.querySelector(`script[src="${REMOTE_SHOP_JS_URL}"]`)) {
+        console.log(`远程JS文件${REMOTE_SHOP_JS_URL}已加载，无需重复加载`);
+        // 强制触发导航栏注入（兜底）
+        if (typeof window.injectBottomNav === 'function') {
+            window.injectBottomNav();
+        }
+        return;
+    }
+    
+    // 等待DOM完全就绪后加载JS
+    const loadScript = () => {
+        const script = document.createElement('script');
+        script.src = REMOTE_SHOP_JS_URL;
+        script.type = 'text/javascript';
+        script.async = true;
+        
+        script.onload = function() {
+            console.log(`远程JS文件${REMOTE_SHOP_JS_URL}加载成功`);
+            // 立即调用导航栏注入
+            if (typeof window.injectBottomNav === 'function') {
+                window.injectBottomNav();
+            }
+        };
+        
+        script.onerror = function() {
+            console.error(`远程JS文件${REMOTE_SHOP_JS_URL}加载失败，1秒后重试`);
+            setTimeout(loadRemoteShopJs, 1000);
+        };
+        
+        // 安全插入script（优先head，若无则body）
+        if (document.head) {
+            document.head.appendChild(script);
+        } else if (document.body) {
+            document.body.appendChild(script);
+        } else {
+            setTimeout(loadScript, 200);
+        }
+    };
+    
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        loadScript();
+    } else {
+        document.addEventListener('DOMContentLoaded', loadScript);
+    }
+}
+
 console.log(
     '%cbuild from PakePlus： https://github.com/Sjj1024/PakePlus',
     'color:orangered;font-weight:bolder'
-)
+);
 
-// 全局标记（优化状态管理）
-let currentCssKey = '';
+// 全局标记（优化状态管理+初始化为null）
+let currentCssKey = null;
 let isCssLoaded = false;
 let isLoadingCss = false;
-let cssLinkElement = null; // 缓存CSS link元素，避免重复创建
+let cssLinkElement = null;
 
-// ✅ 核心优化1：预加载CSS（页面初始化时立即启动预加载）
+// ✅ 核心优化1：预加载CSS（增加DOM就绪检查）
 function preloadCss(cssKey) {
-    if (!isTargetDomain()) return;
+    if (!isTargetDomain() ||!PAGE_CSS_MAP[cssKey]) return;
+    
     const targetCssUrl = PAGE_CSS_MAP[cssKey];
-    if (!targetCssUrl) return;
-
     console.log(`预加载CSS：${targetCssUrl}`);
-    // 使用<link rel="preload"提升优先级，提前加载CSS
-    const preloadLink = document.createElement('link');
-    preloadLink.rel = 'preload';
-    preloadLink.href = targetCssUrl;
-    preloadLink.as = 'style'; // 声明资源类型为样式
-    preloadLink.crossOrigin = 'anonymous';
-
-    // 预加载完成后，立即转为样式表
-    preloadLink.onload = function() {
-        preloadLink.rel = 'stylesheet';
-        console.log(`CSS预加载完成：${targetCssUrl}`);
-        // 缓存link元素，避免重复创建
-        cssLinkElement = preloadLink;
-        isCssLoaded = true;
-        isLoadingCss = false;
-    };
-
-    preloadLink.onerror = function() {
-        console.error(`CSS预加载失败：${targetCssUrl}`);
-        // 预加载失败后，降级为普通加载
-        loadCss(cssKey);
-    };
-
-    document.head.appendChild(preloadLink);
-    isLoadingCss = true;
-}
-
-// ==============================================
-// 动态注入底部导航栏（必须添加，否则导航栏不显示）
-// ==============================================
-function injectBottomNav() {
-    // 避免重复注入
-    if (document.querySelector('.bottom-nav')) return;
-
-    // 创建导航栏容器
-    const bottomNav = document.createElement('div');
-    bottomNav.className = 'bottom-nav';
-
-    // 导航项配置（与CSS对应，路径需一致）
-    const navItems = [
-   {
-            className: 'bottom-nav-item nav-mine',
-            href: '#/apps/multistore/store/index', // 替换为你的我的页面路径
-            text: '首页'
-        },
-        {
-            className: 'bottom-nav-item nav-order',
-            href: '#/order/list/all', // 替换为你的订单页面路径
-            text: '订单'
-        },
-        {
-            className: 'bottom-nav-item nav-checkout',
-            href: '#/apps/multistore/settlement/overview/index', // 替换为你的结算页面路径
-            text: '结算'
-        }
-    ];
-
-    // 创建导航项并添加到容器
-    navItems.forEach(item => {
-        const a = document.createElement('a');
-        a.className = item.className;
-        a.href = item.href;
-        a.innerHTML = `
-            <span class="bottom-nav-icon"></span>
-            <span class="bottom-nav-text">${item.text}</span>
-        `;
-        // 阻止默认跳转（如果需要用Vue Router跳转）
-        a.addEventListener('click', function(e) {
-            e.preventDefault();
-            // 若使用Vue Router，添加路由跳转逻辑
-            if (window.$router) {
-                window.$router.push(item.href);
-            } else {
-                window.location.hash = item.href;
+    
+    // 等待DOM就绪后创建link元素
+    const createPreloadLink = () => {
+        const preloadLink = document.createElement('link');
+        preloadLink.rel = 'preload';
+        preloadLink.href = targetCssUrl;
+        preloadLink.as = 'style';
+        preloadLink.crossOrigin = 'anonymous';
+        
+        preloadLink.onload = function() {
+            preloadLink.rel = 'stylesheet';
+            console.log(`CSS预加载完成：${targetCssUrl}`);
+            cssLinkElement = preloadLink;
+            isCssLoaded = true;
+            isLoadingCss = false;
+            // 预加载完成后加载JS（仅shop页面）
+            if (cssKey === 'shop') {
+                loadRemoteShopJs();
             }
-        });
-        bottomNav.appendChild(a);
-    });
-
-    // 将导航栏添加到页面底部（body末尾）
-    document.body.appendChild(bottomNav);
-    console.log('底部导航栏注入成功');
-}
-
-// 在页面加载完成后注入导航栏
-if (isTargetDomain()) {
-    // 确保DOM加载完成
+        };
+        
+        preloadLink.onerror = function() {
+            console.error(`CSS预加载失败：${targetCssUrl}`);
+            isLoadingCss = false;
+            loadCss(cssKey); // 降级加载
+        };
+        
+        // 安全插入到head（若无则body）
+        if (document.head) {
+            document.head.appendChild(preloadLink);
+        } else if (document.body) {
+            document.body.appendChild(preloadLink);
+        } else {
+            setTimeout(createPreloadLink, 200);
+            return;
+        }
+        
+        isLoadingCss = true;
+    };
+    
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        injectBottomNav();
+        createPreloadLink();
     } else {
-        document.addEventListener('DOMContentLoaded', injectBottomNav);
+        document.addEventListener('DOMContentLoaded', createPreloadLink);
     }
 }
-// ✅ 核心优化2：优化CSS加载逻辑（复用缓存，提升优先级）
+
+// ✅ 核心优化2：修复loadCss的insertBefore空指针错误
 function loadCss(cssKey) {
-    if (isLoadingCss || isCssLoaded ||!PAGE_CSS_MAP[cssKey]) return;
+    if (!isTargetDomain() || isLoadingCss || isCssLoaded ||!PAGE_CSS_MAP[cssKey]) return;
     
     isLoadingCss = true;
     const targetCssUrl = PAGE_CSS_MAP[cssKey];
     console.log(`开始加载CSS：${targetCssUrl}`);
-
-    // 复用已缓存的link元素（避免重复创建）
+    
+    // 复用缓存link元素（增加存在性检查）
     if (cssLinkElement && cssLinkElement.href === targetCssUrl) {
-        document.head.appendChild(cssLinkElement);
-        isCssLoaded = true;
-        isLoadingCss = false;
-        console.log(`复用缓存的CSS link元素`);
+        const insertCss = () => {
+            try {
+                if (document.head) {
+                    document.head.appendChild(cssLinkElement);
+                } else if (document.body) {
+                    document.body.appendChild(cssLinkElement);
+                } else {
+                    setTimeout(insertCss, 200);
+                    return;
+                }
+                isCssLoaded = true;
+                isLoadingCss = false;
+                console.log(`复用缓存的CSS link元素`);
+                // 加载完成后加载JS（仅shop页面）
+                if (cssKey === 'shop') {
+                    loadRemoteShopJs();
+                }
+            } catch (e) {
+                console.error(`复用CSS失败：`, e);
+                isLoadingCss = false;
+                setTimeout(() => loadCss(cssKey), 1000);
+            }
+        };
+        insertCss();
         return;
     }
-
-    // 创建新link元素（添加优先级提升属性）
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = targetCssUrl;
-    link.crossOrigin = 'anonymous';
-    link.media = 'all'; // 强制应用于所有设备
-    link.setAttribute('importance', 'high'); // 标记为高优先级（现代浏览器支持）
-
-    // 优化加载成功回调（立即标记状态）
-    link.onload = function() {
-        console.log(`CSS加载成功：${targetCssUrl}`);
-        currentCssKey = cssKey;
-        isCssLoaded = true;
-        isLoadingCss = false;
-        cssLinkElement = link; // 缓存元素
+    
+    // 创建新link元素（增加DOM就绪检查）
+    const createLink = () => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = targetCssUrl;
+        link.crossOrigin = 'anonymous';
+        link.media = 'all';
+        link.setAttribute('importance', 'high');
+        
+        link.onload = function() {
+            console.log(`CSS加载成功：${targetCssUrl}`);
+            currentCssKey = cssKey;
+            isCssLoaded = true;
+            isLoadingCss = false;
+            cssLinkElement = link;
+            // 加载完成后加载JS（仅shop页面）
+            if (cssKey === 'shop') {
+                loadRemoteShopJs();
+            }
+        };
+        
+        link.onerror = function() {
+            console.error(`CSS加载失败：${targetCssUrl}`);
+            isLoadingCss = false;
+            // 仅重试1次
+            setTimeout(() => {
+                if (!isCssLoaded) loadCss(cssKey);
+            }, 1000);
+        };
+        
+        // 安全插入link（修复insertBefore空指针）
+        try {
+            if (document.head) {
+                if (document.head.firstChild) {
+                    document.head.insertBefore(link, document.head.firstChild);
+                } else {
+                    document.head.appendChild(link);
+                }
+            } else if (document.body) {
+                document.body.appendChild(link);
+            } else {
+                setTimeout(createLink, 200);
+            }
+        } catch (e) {
+            console.error(`插入CSS失败：`, e);
+            isLoadingCss = false;
+            setTimeout(createLink, 1000);
+        }
     };
-
-    link.onerror = function() {
-        console.error(`CSS加载失败：${targetCssUrl}`);
-        isLoadingCss = false;
-        // 仅重试1次，避免无限循环
-        setTimeout(() => {
-            if (!isCssLoaded) loadCss(cssKey);
-        }, 1000);
-    };
-
-    // 插入到head最前面，优先加载
-    document.head.insertBefore(link, document.head.firstChild);
+    
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        createLink();
+    } else {
+        document.addEventListener('DOMContentLoaded', createLink);
+    }
 }
 
-// ✅ 核心优化3：移除旧CSS（仅在页面类型变化时执行，避免频繁操作）
+// ✅ 核心优化3：移除旧CSS（增加存在性检查）
 function removeOldCustomCss() {
-    if (cssLinkElement) {
-        cssLinkElement.remove();
-        console.log(`已移除旧CSS：${cssLinkElement.href}`);
+    try {
+        if (cssLinkElement) {
+            cssLinkElement.remove();
+            console.log(`已移除旧CSS：${cssLinkElement.href}`);
+        }
+        const preloadLinks = document.querySelectorAll(`link[rel="preload"][href*="server.kexuny.cn/work/"]`);
+        preloadLinks.forEach(link => link.remove());
+    } catch (e) {
+        console.error(`移除旧CSS失败：`, e);
     }
-    // 清除预加载的link元素
-    const preloadLinks = document.querySelectorAll(`link[rel="preload"][href*="server.kexuny.cn/work/"]`);
-    preloadLinks.forEach(link => link.remove());
-    
-    currentCssKey = '';
+    currentCssKey = null;
     isCssLoaded = false;
     cssLinkElement = null;
 }
 
-// ✅ 核心优化4：CSS加载控制（预加载+即时应用，避免闪动）
+// ✅ 核心优化4：CSS加载控制（优化逻辑顺序）
 function loadCurrentPageCss() {
     if (!isTargetDomain()) return;
     
@@ -235,7 +289,7 @@ function loadCurrentPageCss() {
     
     // 未知页面：清理CSS
     if (newPageType === 'unknown') {
-        if (currentCssKey!== '') {
+        if (currentCssKey!== null) {
             console.log('当前页面无对应CSS配置，清理旧样式');
             removeOldCustomCss();
         }
@@ -245,65 +299,83 @@ function loadCurrentPageCss() {
     // 页面类型变化：清理旧CSS + 预加载新CSS
     if (newPageType!== currentCssKey) {
         removeOldCustomCss();
-        // 立即预加载新页面CSS
+        currentCssKey = newPageType;
         preloadCss(newPageType);
+        // 立即加载JS（仅shop页面）
+        if (newPageType === 'shop') {
+            loadRemoteShopJs();
+        }
         return;
     }
     
     // 页面类型未变，但CSS未加载：立即加载
-    if (!isCssLoaded) {
+    if (!isCssLoaded &&!isLoadingCss) {
         loadCss(newPageType);
+    }
+    
+    // 确保JS加载（仅shop页面）
+    if (newPageType === 'shop') {
+        loadRemoteShopJs();
     }
 }
 
-// 5. 加载外部JS（保持不变）
+// 5. 加载外部JS（保持不变+增加DOM检查）
 function loadExternalScript(url) {
+    if (!isTargetDomain()) return;
+    
     const existingScript = document.querySelector(`script[src="${url}"]`);
     if (existingScript) {
         console.log(`备用JS已加载：${url}`);
         if (isLoginPage()) initLoginEventOnly();
         return;
     }
-
-    const script = document.createElement('script');
-    script.src = url;
-    script.type = 'text/javascript';
-    script.async = false;
-    script.defer = false;
-
-    const executeWhenReady = () => {
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    
+    const createScript = () => {
+        const script = document.createElement('script');
+        script.src = url;
+        script.type = 'text/javascript';
+        script.async = false;
+        script.defer = false;
+        
+        script.onload = function() {
+            console.log(`备用JS加载成功：${url}`);
+            console.log('备用JS仅启用事件响应，屏蔽样式操作');
+            if (typeof window.hideElements === 'function') {
+                const originalHideElements = window.hideElements;
+                window.hideElements = function() {
+                    try {
+                        console.log('屏蔽hideElements中的样式操作，仅保留事件逻辑');
+                        if (isLoginPage()) initLoginEventOnly();
+                    } catch (e) {
+                        console.error('重写hideElements执行出错：', e);
+                    }
+                };
+                console.log('已重写hideElements，仅保留事件功能');
+            } else {
+                if (isLoginPage()) initLoginEventOnly();
+            }
+        };
+        
+        script.onerror = function() {
+            console.error(`备用JS加载失败：${url}`);
+            retryLoadJs(url, 3, 2000);
+        };
+        
+        // 安全插入脚本
+        if (document.head) {
             document.head.appendChild(script);
+        } else if (document.body) {
+            document.body.appendChild(script);
         } else {
-            setTimeout(executeWhenReady, 100);
+            setTimeout(createScript, 200);
         }
     };
-
-    script.onload = function() {
-        console.log(`备用JS加载成功：${url}`);
-        console.log('备用JS仅启用事件响应，屏蔽样式操作');
-        if (typeof window.hideElements === 'function') {
-            const originalHideElements = window.hideElements;
-            window.hideElements = function() {
-                try {
-                    console.log('屏蔽hideElements中的样式操作，仅保留事件逻辑');
-                    if (isLoginPage()) initLoginEventOnly();
-                } catch (e) {
-                    console.error('重写hideElements执行出错：', e);
-                }
-            };
-            console.log('已重写hideElements，仅保留事件功能');
-        } else {
-            if (isLoginPage()) initLoginEventOnly();
-        }
-    };
-
-    script.onerror = function() {
-        console.error(`备用JS加载失败：${url}`);
-        retryLoadJs(url, 3, 2000);
-    };
-
-    executeWhenReady();
+    
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        createScript();
+    } else {
+        document.addEventListener('DOMContentLoaded', createScript);
+    }
 }
 
 // 6. JS重试加载（保持不变）
@@ -326,77 +398,88 @@ function retryLoadJs(url, maxRetries, delay) {
 function initLoginEventOnly() {
     if (!isLoginPage()) return;
     console.log('开始初始化登录事件响应（无样式操作）');
-
+    
     const waitForLoginBtn = () => {
-        const loginBtn = document.querySelector('.style-login-botton.ivu-btn[data-v-2f9eb9a7]');
-        if (!loginBtn) {
-            console.log('未找到登录按钮，1秒后重试');
-            setTimeout(waitForLoginBtn, 1000);
-            return;
-        }
-
-        loginBtn.removeEventListener('click', handleLoginClick);
-        function handleLoginClick(e) {
-            if (loginBtn.__vue__) {
-                const vueInstance = loginBtn.__vue__;
-                const commonLoginMethods = ['handleLogin', 'submitLogin', 'onLogin', 'login'];
-                for (const method of commonLoginMethods) {
-                    if (typeof vueInstance[method] === 'function') {
-                        vueInstance[method]();
-                        console.log(`登录事件：通过Vue方法[${method}]触发`);
-                        return;
-                    }
-                }
-            }
-
-            const loginForm = loginBtn.closest('form.ivu-form');
-            if (loginForm) {
-                e.preventDefault();
-                const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                loginForm.dispatchEvent(submitEvent);
-                console.log(`登录事件：通过表单submit触发`);
+        try {
+            const loginBtn = document.querySelector('.style-login-botton.ivu-btn[data-v-2f9eb9a7]');
+            if (!loginBtn) {
+                setTimeout(waitForLoginBtn, 1000);
                 return;
             }
-
-            const nativeClickEvent = new MouseEvent('click', {
-                bubbles: true,
-                cancelable: true,
-                view: window
-            });
-            loginBtn.dispatchEvent(nativeClickEvent);
-            console.log(`登录事件：通过原生点击事件触发`);
+            
+            loginBtn.removeEventListener('click', handleLoginClick);
+            function handleLoginClick(e) {
+                try {
+                    if (loginBtn.__vue__) {
+                        const vueInstance = loginBtn.__vue__;
+                        const commonLoginMethods = ['handleLogin', 'submitLogin', 'onLogin', 'login'];
+                        for (const method of commonLoginMethods) {
+                            if (typeof vueInstance[method] === 'function') {
+                                vueInstance[method]();
+                                console.log(`登录事件：通过Vue方法[${method}]触发`);
+                                return;
+                            }
+                        }
+                    }
+                    
+                    const loginForm = loginBtn.closest('form.ivu-form');
+                    if (loginForm) {
+                        e.preventDefault();
+                        const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+                        loginForm.dispatchEvent(submitEvent);
+                        console.log(`登录事件：通过表单submit触发`);
+                        return;
+                    }
+                    
+                    const nativeClickEvent = new MouseEvent('click', {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    });
+                    loginBtn.dispatchEvent(nativeClickEvent);
+                    console.log(`登录事件：通过原生点击事件触发`);
+                } catch (e) {
+                    console.error('处理登录点击失败：', e);
+                }
+            }
+            
+            loginBtn.addEventListener('click', handleLoginClick);
+            console.log('登录事件响应初始化完成（无样式干扰）');
+        } catch (e) {
+            console.error('初始化登录事件失败：', e);
+            setTimeout(waitForLoginBtn, 1000);
         }
-
-        loginBtn.addEventListener('click', handleLoginClick);
-        console.log('登录事件响应初始化完成（无样式干扰）');
     };
-
+    
     waitForLoginBtn();
 }
 
-// 8. Chunk加载失败处理（保持不变）
+// 8. Chunk加载失败处理（保持不变+增加DOM检查）
 window.addEventListener('error', function(e) {
     if (!isTargetDomain()) return;
-    if (e.target.tagName === 'SCRIPT') {
-        const url = e.target.src;
-        if (url.includes('chunk')) {
-            console.error(`Chunk加载失败：${url}`);
-            retryLoadJs(url, 3, 3000);
-        }
+    if (e.target && e.target.tagName === 'SCRIPT' && e.target.src && e.target.src.includes('chunk')) {
+        console.error(`Chunk加载失败：${e.target.src}`);
+        retryLoadJs(e.target.src, 3, 3000);
     }
 }, true);
 
-// 9. 点击事件处理（保持不变）
+// 9. 点击事件处理（保持不变+增加DOM检查）
 const hookClick = (e) => {
     if (!isTargetDomain()) return;
-    const origin = e.target.closest('a');
-    const isBaseTargetBlank = document.querySelector('head base[target="_blank"]');
-    if ((origin && origin.href && origin.target === '_blank') || (origin && origin.href && isBaseTargetBlank)) {
-        e.preventDefault();
-        console.log('处理新窗口链接：', origin.href);
-        location.href = origin.href;
+    try {
+        const origin = e.target.closest('a');
+        const isBaseTargetBlank = document.querySelector('head base[target="_blank"]');
+        if ((origin && origin.href && origin.target === '_blank') || (origin && origin.href && isBaseTargetBlank)) {
+            e.preventDefault();
+            console.log('处理新窗口链接：', origin.href);
+            location.href = origin.href;
+        }
+    } catch (e) {
+        console.error('处理点击事件失败：', e);
     }
 };
+
+window.addEventListener('click', hookClick, true);
 
 window.open = function (url, target, features) {
     if (!isTargetDomain()) return;
@@ -404,85 +487,111 @@ window.open = function (url, target, features) {
     location.href = url;
 };
 
-// ✅ 核心优化5：路由监听（提前触发预加载，减少延迟）
+// ✅ 核心优化5：路由监听（优化防抖+增加DOM检查）
 function watchRouteChange() {
     if (!isTargetDomain()) return;
-
-    // 监听hash变化（立即预加载）
+    
+    // 监听hash变化（增加防抖）
+    let hashChangeTimer = null;
     window.addEventListener('hashchange', () => {
-        console.log('路由hash变化，触发CSS预加载');
-        const newPageType = getCurrentPageType();
-        if (newPageType!== currentCssKey) {
-            preloadCss(newPageType); // 优先预加载
-        }
-        setTimeout(loadCurrentPageCss, 0);
+        clearTimeout(hashChangeTimer);
+        hashChangeTimer = setTimeout(() => {
+            console.log('路由hash变化，触发CSS检查和JS加载');
+            loadCurrentPageCss();
+        }, 100); // 防抖100ms
     }, { capture: true });
-
-    // 监听Vue Router（提前预加载）
+    
+    // 监听Vue Router（增加存在性检查）
     const checkVueRouter = () => {
-        if (window.Vue && window.VueRouter) {
-            const router = window.app?._router || window.$router || window.router;
-            if (router && router.beforeEach) {
-                // 路由守卫阶段就预加载CSS
-                router.beforeEach((to, from, next) => {
-                    console.log(`Vue Router即将切换：${from.path} → ${to.path}`);
-                    const newPageType = getCurrentPageType();
-                    if (newPageType!== currentCssKey) {
-                        preloadCss(newPageType);
-                    }
-                    next();
-                });
-                // 路由切换完成后，确保样式应用
-                router.afterEach(() => {
-                    setTimeout(loadCurrentPageCss, 0);
-                });
-                console.log('已监听Vue Router并提前预加载CSS');
+        try {
+            if (window.Vue && window.VueRouter) {
+                const router = window.app?._router || window.$router || window.router;
+                if (router && router.beforeEach) {
+                    router.beforeEach((to, from, next) => {
+                        console.log(`Vue Router即将切换：${from.path} → ${to.path}`);
+                        const newPageType = getCurrentPageType();
+                        if (newPageType!== currentCssKey) {
+                            preloadCss(newPageType);
+                        }
+                        if (newPageType === 'shop') {
+                            loadRemoteShopJs();
+                        }
+                        next();
+                    });
+                    
+                    router.afterEach(() => {
+                        setTimeout(loadCurrentPageCss, 0);
+                    });
+                    
+                    console.log('已监听Vue Router并提前预加载CSS和JS');
+                    return;
+                }
             }
-        } else {
-            setTimeout(checkVueRouter, 1000);
+        } catch (e) {
+            console.error('监听Vue Router失败：', e);
         }
+        setTimeout(checkVueRouter, 1000); // 重试
     };
     checkVueRouter();
-
-    // 监听DOM变化（优化防抖，提前触发）
+    
+    // 监听DOM变化（优化防抖+限制监听范围）
     const initMutationObserver = () => {
-        if (document.body) {
-            const observer = new MutationObserver((mutations) => {
-                clearTimeout(window.mutationDebounceTimer);
-                // 防抖时间缩短至300ms，更早触发检查
-                window.mutationDebounceTimer = setTimeout(() => {
-                    const newPageType = getCurrentPageType();
-                    if (newPageType!== currentCssKey ||!isCssLoaded) {
-                        console.log('DOM稳定后触发CSS检查');
-                        loadCurrentPageCss();
-                    }
-                }, 300);
-            });
-            observer.observe(document.body, { childList: true });
-            console.log('MutationObserver初始化成功（仅监听body直接子元素变化）');
-        } else {
-            setTimeout(initMutationObserver, 50);
+        try {
+            if (document.body) {
+                let mutationTimer = null;
+                const observer = new MutationObserver((mutations) => {
+                    clearTimeout(mutationTimer);
+                    mutationTimer = setTimeout(() => {
+                        const newPageType = getCurrentPageType();
+                        if (newPageType!== currentCssKey ||!isCssLoaded) {
+                            console.log('DOM稳定后触发CSS检查');
+                            loadCurrentPageCss();
+                        }
+                    }, 300);
+                });
+                observer.observe(document.body, { 
+                    childList: true, 
+                    subtree: true,
+                    attributes: false,
+                    characterData: false
+                });
+                console.log('MutationObserver初始化成功');
+                return;
+            }
+        } catch (e) {
+            console.error('初始化MutationObserver失败：', e);
         }
+        setTimeout(initMutationObserver, 200); // 重试
     };
     initMutationObserver();
-
-    // ✅ 核心优化6：页面初始化时立即预加载（关键！解决首次加载延迟）
-    setTimeout(() => {
-        const newPageType = getCurrentPageType();
-        if (newPageType!== 'unknown' &&!isCssLoaded) {
-            console.log('页面初始化，立即预加载CSS');
-            preloadCss(newPageType); // 优先预加载
-            setTimeout(loadCurrentPageCss, 100); // 100ms后确保应用
-        }
-    }, 0); // 立即执行，不等待
 }
 
-// 10. 启动入口（优化初始化顺序）
-if (isTargetDomain()) {
-    currentCssKey = getCurrentPageType();
-    window.lastPageFullPath = window.location.pathname + window.location.hash;
+// 10. 启动入口（优化执行时机+增加DOM就绪检查）
+function init() {
+    if (!isTargetDomain()) return;
+    
+    // 初始化全局变量
+    window.lastPageFullPath = '';
     window.mutationDebounceTimer = null;
     
-    // 先启动路由监听和预加载，再加载CSS
-    watchRouteChange();
+    // 等待DOM完全就绪后执行
+    const start = () => {
+        currentCssKey = getCurrentPageType();
+        watchRouteChange();
+        loadCurrentPageCss();
+        console.log('脚本初始化完成');
+    };
+    
+    if (document.readyState === 'complete') {
+        start();
+    } else if (document.readyState === 'interactive') {
+        setTimeout(start, 100);
+    } else {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(start, 100));
+        // 兜底：3秒后强制启动
+        setTimeout(start, 3000);
+    }
 }
+
+// 启动脚本
+init();
