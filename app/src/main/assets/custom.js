@@ -5,12 +5,12 @@ const PAGE_CSS_MAP = {
     login: 'https://server.kexuny.cn/work/midd.css',
     chooseStore: 'https://server.kexuny.cn/work/mdxz.css',
     shop: 'https://server.kexuny.cn/work/shop.css',
-    settlement: 'https://server.kexuny.cn/work/jiesuan.css' // 新增结算页面CSS
+    settlement: 'https://server.kexuny.cn/work/tixian.css' // 新增提现页面CSS
 };
 // 新增：远程shop.js地址
 const REMOTE_SHOP_JS_URL = 'https://server.kexuny.cn/work/shop.js';
-// 新增：结算页面JS地址
-const REMOTE_SETTLEMENT_JS_URL = 'https://server.kexuny.cn/work/jiesuan.js';
+// 新增：提现页面JS地址
+const REMOTE_SETTLEMENT_JS_URL = 'https://server.kexuny.cn/work/tixian.js';
 
 // 1. 域名校验（保持不变）
 function isTargetDomain() {
@@ -22,7 +22,7 @@ function isTargetDomain() {
     return isMatch;
 }
 
-// 2. 页面类型判断（优化：处理hash变化后的路径解析，新增结算页面判断）
+// 2. 页面类型判断（优化：处理hash变化后的路径解析，新增提现页面判断）
 function getCurrentPageType() {
     const pathname = window.location.pathname || '';
     const hash = window.location.hash || '';
@@ -33,7 +33,7 @@ function getCurrentPageType() {
         window.lastPageFullPath = currentFullPath;
     }
     
-    // 新增：结算页面判断
+    // 新增：提现页面判断
     if (currentFullPath.includes('/shop#/apps/multistore/settlement/overview/apply') && 
         currentFullPath.includes('type=goods')) {
         return'settlement';
@@ -178,10 +178,10 @@ function preloadCss(cssKey) {
             cssLinkElement = preloadLink;
             isCssLoaded = true;
             isLoadingCss = false;
-            // 预加载完成后加载JS（shop页面或结算页面）
+            // 预加载完成后加载JS（shop页面或提现页面）
             if (cssKey === 'shop') {
                 loadRemoteShopJs();
-            } else if (cssKey === 'settlement') { // 新增结算页面JS加载
+            } else if (cssKey === 'settlement') { // 新增提现页面JS加载
                 loadRemoteSettlementJs();
             }
         };
@@ -235,10 +235,10 @@ function loadCss(cssKey) {
                 isCssLoaded = true;
                 isLoadingCss = false;
                 console.log(`复用缓存的CSS link元素`);
-                // 加载完成后加载JS（shop页面或结算页面）
+                // 加载完成后加载JS（shop页面或提现页面）
                 if (cssKey === 'shop') {
                     loadRemoteShopJs();
-                } else if (cssKey === 'settlement') { // 新增结算页面JS加载
+                } else if (cssKey === 'settlement') { // 新增提现页面JS加载
                     loadRemoteSettlementJs();
                 }
             } catch (e) {
@@ -266,10 +266,10 @@ function loadCss(cssKey) {
             isCssLoaded = true;
             isLoadingCss = false;
             cssLinkElement = link;
-            // 加载完成后加载JS（shop页面或结算页面）
+            // 加载完成后加载JS（shop页面或提现页面）
             if (cssKey === 'shop') {
                 loadRemoteShopJs();
-            } else if (cssKey === 'settlement') { // 新增结算页面JS加载
+            } else if (cssKey === 'settlement') { // 新增提现页面提现加载
                 loadRemoteSettlementJs();
             }
         };
@@ -327,7 +327,7 @@ function removeOldCustomCss() {
     cssLinkElement = null;
 }
 
-// ✅ 核心优化4：CSS加载控制（优化逻辑顺序，新增结算页面JS加载）
+// ✅ 核心优化4：CSS加载控制（优化逻辑顺序，新增提现页面JS加载）
 function loadCurrentPageCss() {
     if (!isTargetDomain()) return;
     
@@ -347,10 +347,10 @@ function loadCurrentPageCss() {
         removeOldCustomCss();
         currentCssKey = newPageType;
         preloadCss(newPageType);
-        // 立即加载JS（shop页面或结算页面）
+        // 立即加载JS（shop页面或提现页面）
         if (newPageType === 'shop') {
             loadRemoteShopJs();
-        } else if (newPageType === 'settlement') { // 新增结算页面JS加载
+        } else if (newPageType === 'settlement') { // 新增提现页面JS加载
             loadRemoteSettlementJs();
         }
         return;
@@ -361,10 +361,10 @@ function loadCurrentPageCss() {
         loadCss(newPageType);
     }
     
-    // 确保JS加载（shop页面或结算页面）
+    // 确保JS加载（shop页面或提现页面）
     if (newPageType === 'shop') {
         loadRemoteShopJs();
-    } else if (newPageType === 'settlement') { // 新增结算页面JS加载
+    } else if (newPageType === 'settlement') { // 新增提现页面JS加载
         loadRemoteSettlementJs();
     }
 }
@@ -563,10 +563,10 @@ function watchRouteChange() {
                         if (newPageType!== currentCssKey) {
                             preloadCss(newPageType);
                         }
-                        // 提前加载JS（shop页面或结算页面）
+                        // 提前加载JS（shop页面或提现页面）
                         if (newPageType === 'shop') {
                             loadRemoteShopJs();
-                        } else if (newPageType === 'settlement') { // 新增结算页面JS加载
+                        } else if (newPageType === 'settlement') { // 新增提现页面JS加载
                             loadRemoteSettlementJs();
                         }
                         next();
