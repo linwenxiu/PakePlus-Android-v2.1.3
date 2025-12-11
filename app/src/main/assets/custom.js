@@ -5,12 +5,27 @@ const PAGE_CSS_MAP = {
     login: 'https://server.kexuny.cn/work/midd.css',
     chooseStore: 'https://server.kexuny.cn/work/mdxz.css',
     shop: 'https://server.kexuny.cn/work/shop.css',
-    settlement: 'https://server.kexuny.cn/work/tixian.css' // 新增提现页面CSS
+    settlement: 'https://server.kexuny.cn/work/tixian.css', // 新增提现页面CSS
+    index: 'https://server.kexuny.cn/work/index.css', // 新增首页CSS
+    order: 'https://server.kexuny.cn/work/order.css', // 新增订单页面CSS
+    jiesuan: 'https://server.kexuny.cn/work/jiesuan.css' // 新增结算页面CSS
 };
-// 新增：远程shop.js地址
-const REMOTE_SHOP_JS_URL = 'https://server.kexuny.cn/work/shop.js';
-// 新增：提现页面JS地址
-const REMOTE_SETTLEMENT_JS_URL = 'https://server.kexuny.cn/work/tixian.js';
+// 新增：远程JS地址映射
+const REMOTE_JS_MAP = {
+    shop: 'https://server.kexuny.cn/work/shop.js',
+    settlement: 'https://server.kexuny.cn/work/tixian.js',
+    index: 'https://server.kexuny.cn/work/index.js', // 新增首页JS
+    order: 'https://server.kexuny.cn/work/order.js', // 新增订单JS
+    jiesuan: 'https://server.kexuny.cn/work/jiesuan.js' // 新增结算JS
+};
+
+// 新增：完全移除返回手势核心配置（零容忍拦截）
+const BACK_DISABLE_CONFIG = {
+    edgeThreshold: 40, // 屏幕边缘触发区（px）
+    touchStartX: 0,
+    touchStartY: 0,
+    isEdgeTouch: false
+};
 
 // 1. 域名校验（保持不变）
 function isTargetDomain() {
@@ -22,7 +37,7 @@ function isTargetDomain() {
     return isMatch;
 }
 
-// 2. 页面类型判断（优化：处理hash变化后的路径解析，新增提现页面判断）
+// 2. 页面类型判断（优化：处理hash变化后的路径解析，新增多个页面判断）
 function getCurrentPageType() {
     const pathname = window.location.pathname || '';
     const hash = window.location.hash || '';
@@ -33,10 +48,20 @@ function getCurrentPageType() {
         window.lastPageFullPath = currentFullPath;
     }
     
-    // 新增：提现页面判断
+    // 新增页面判断逻辑
+    if (currentFullPath.includes('/shop#/apps/multistore/store/index')) {
+        return 'index'; // 首页
+    }
+    if (currentFullPath.includes('/shop#/order/list/all')) {
+        return 'order'; // 订单页面
+    }
+    if (currentFullPath.includes('/shop#/apps/multistore/settlement/overview/index')) {
+        return 'jiesuan'; // 结算页面
+    }
+    // 原有提现页面判断
     if (currentFullPath.includes('/shop#/apps/multistore/settlement/overview/apply') && 
         currentFullPath.includes('type=goods')) {
-        return'settlement';
+        return 'settlement';
     }
     if (currentFullPath === LOGIN_PAGE_PATH) {
         return 'login';
@@ -54,56 +79,83 @@ function isLoginPage() {
     return getCurrentPageType() === 'login';
 }
 
-// 新增：动态加载远程settlement.js文件（避免重复加载+DOM就绪检查）
-function loadRemoteSettlementJs() {
+// 新增：完全移除所有返回手势（核心拦截逻辑）
+function disableAllBackGestures() {
     if (!isTargetDomain()) return;
-    // 检查是否已加载
-    if (document.querySelector(`script[src="${REMOTE_SETTLEMENT_JS_URL}"]`)) {
-        console.log(`远程JS文件${REMOTE_SETTLEMENT_JS_URL}已加载，无需重复加载`);
-        return;
-    }
-    
-    // 等待DOM完全就绪后加载JS
-    const loadScript = () => {
-        const script = document.createElement('script');
-        script.src = REMOTE_SETTLEMENT_JS_URL;
-        script.type = 'text/javascript';
-        script.async = true;
-        
-        script.onload = function() {
-            console.log(`远程JS文件${REMOTE_SETTLEMENT_JS_URL}加载成功`);
-        };
-        
-        script.onerror = function() {
-            console.error(`远程JS文件${REMOTE_SETTLEMENT_JS_URL}加载失败，1秒后重试`);
-            setTimeout(loadRemoteSettlementJs, 1000);
-        };
-        
-        // 安全插入script（优先head，若无则body）
-        if (document.head) {
-            document.head.appendChild(script);
-        } else if (document.body) {
-            document.body.appendChild(script);
-        } else {
-            setTimeout(loadScript, 200);
+
+    // 1. 拦截边缘触摸手势（iOS/Android 系统级右滑返回）
+    document.addEventListener('touchstart', (e) => {
+        const touchX = e.touches[0].clientX;
+        const touchY = e.touches[0].clientY;
+        // 标记是否为屏幕左右边缘触发（左边缘右滑/右边缘左滑均拦截）
+        BACK_DISABLE_CONFIG.isEdgeTouch = (touchX < BACK_DISABLE_CONFIG.edgeThreshold) || (touchX > window.innerWidth - BACK_DISABLE_CONFIG.edgeThreshold);
+        BACK_DISABLE_CONFIG.touchStartX = touchX;
+        BACK_DISABLE_CONFIG.touchStartY = touchY;
+    }, { passive: false });
+
+    // 2. 拦截触摸移动（阻止边缘滑动触发返回）
+    document.addEventListener('touchmove', (e) => {
+        if (!BACK_DISABLE_CONFIG.isEdgeTouch) return;
+
+        const deltaX = e.touches[0].clientX - BACK_DISABLE_CONFIG.touchStartX;
+        const deltaY = e.touches[0].clientY - BACK_DISABLE_CONFIG.touchStartY;
+
+        // 拦截水平边缘滑动（优先阻止返回手势，不影响垂直滚动）
+        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('完全拦截边缘滑动返回手势');
         }
-    };
-    
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        loadScript();
-    } else {
-        document.addEventListener('DOMContentLoaded', loadScript);
+    }, { passive: false }); // passive:false 必须设置，否则无法阻止默认行为
+
+    // 3. 拦截浏览器历史返回（popstate 事件）
+    if (window.history && window.history.pushState) {
+        // 初始化历史记录，阻止首次返回
+        window.history.pushState({ noBack: true }, document.title, window.location.href);
+        // 拦截所有 popstate 触发（包括右滑返回、物理返回键）
+        window.addEventListener('popstate', (e) => {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            // 重置历史记录，防止连续返回
+            window.history.pushState({ noBack: true }, document.title, window.location.href);
+            console.log('完全拦截 popstate 返回事件');
+        }, { capture: true, once: false });
     }
+
+    // 4. 拦截安卓物理返回键（PakePlus 安卓端兼容）
+    if (window.plus) {
+        plus.key.addEventListener('backbutton', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('完全拦截安卓物理返回键');
+        }, false);
+    }
+
+    // 5. 拦截键盘后退键（Backspace）
+    document.addEventListener('keydown', (e) => {
+        // 仅在非输入状态下拦截 Backspace
+        const activeEl = document.activeElement;
+        const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+        if (e.key === 'Backspace' && !isInput) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('完全拦截键盘后退键返回');
+        }
+    }, { capture: true });
+
+    console.log('✅ 已完全移除所有返回手势（边缘滑动/物理键/键盘/历史记录）');
 }
 
-// 新增：动态加载远程shop.js文件（避免重复加载+DOM就绪检查）
-function loadRemoteShopJs() {
-    if (!isTargetDomain()) return;
+// 通用远程JS加载函数（替代原有单个加载函数，支持多页面）
+function loadRemoteJs(jsKey) {
+    if (!isTargetDomain() ||!REMOTE_JS_MAP[jsKey]) return;
+    
+    const REMOTE_JS_URL = REMOTE_JS_MAP[jsKey];
     // 检查是否已加载
-    if (document.querySelector(`script[src="${REMOTE_SHOP_JS_URL}"]`)) {
-        console.log(`远程JS文件${REMOTE_SHOP_JS_URL}已加载，无需重复加载`);
-        // 强制触发导航栏注入（兜底）
-        if (typeof window.injectBottomNav === 'function') {
+    if (document.querySelector(`script[src="${REMOTE_JS_URL}"]`)) {
+        console.log(`远程JS文件${REMOTE_JS_URL}已加载，无需重复加载`);
+        // 强制触发对应函数（兜底）
+        if (jsKey ==='shop' && typeof window.injectBottomNav === 'function') {
             window.injectBottomNav();
         }
         return;
@@ -112,21 +164,21 @@ function loadRemoteShopJs() {
     // 等待DOM完全就绪后加载JS
     const loadScript = () => {
         const script = document.createElement('script');
-        script.src = REMOTE_SHOP_JS_URL;
+        script.src = REMOTE_JS_URL;
         script.type = 'text/javascript';
         script.async = true;
         
         script.onload = function() {
-            console.log(`远程JS文件${REMOTE_SHOP_JS_URL}加载成功`);
-            // 立即调用导航栏注入
-            if (typeof window.injectBottomNav === 'function') {
+            console.log(`远程JS文件${REMOTE_JS_URL}加载成功`);
+            // 立即调用导航栏注入（仅shop页面）
+            if (jsKey ==='shop' && typeof window.injectBottomNav === 'function') {
                 window.injectBottomNav();
             }
         };
         
         script.onerror = function() {
-            console.error(`远程JS文件${REMOTE_SHOP_JS_URL}加载失败，1秒后重试`);
-            setTimeout(loadRemoteShopJs, 1000);
+            console.error(`远程JS文件${REMOTE_JS_URL}加载失败，1秒后重试`);
+            setTimeout(() => loadRemoteJs(jsKey), 1000);
         };
         
         // 安全插入script（优先head，若无则body）
@@ -178,12 +230,8 @@ function preloadCss(cssKey) {
             cssLinkElement = preloadLink;
             isCssLoaded = true;
             isLoadingCss = false;
-            // 预加载完成后加载JS（shop页面或提现页面）
-            if (cssKey === 'shop') {
-                loadRemoteShopJs();
-            } else if (cssKey === 'settlement') { // 新增提现页面JS加载
-                loadRemoteSettlementJs();
-            }
+            // 预加载完成后加载对应JS
+            loadRemoteJs(cssKey);
         };
         
         preloadLink.onerror = function() {
@@ -235,12 +283,8 @@ function loadCss(cssKey) {
                 isCssLoaded = true;
                 isLoadingCss = false;
                 console.log(`复用缓存的CSS link元素`);
-                // 加载完成后加载JS（shop页面或提现页面）
-                if (cssKey === 'shop') {
-                    loadRemoteShopJs();
-                } else if (cssKey === 'settlement') { // 新增提现页面JS加载
-                    loadRemoteSettlementJs();
-                }
+                // 加载完成后加载对应JS
+                loadRemoteJs(cssKey);
             } catch (e) {
                 console.error(`复用CSS失败：`, e);
                 isLoadingCss = false;
@@ -266,12 +310,8 @@ function loadCss(cssKey) {
             isCssLoaded = true;
             isLoadingCss = false;
             cssLinkElement = link;
-            // 加载完成后加载JS（shop页面或提现页面）
-            if (cssKey === 'shop') {
-                loadRemoteShopJs();
-            } else if (cssKey === 'settlement') { // 新增提现页面提现加载
-                loadRemoteSettlementJs();
-            }
+            // 加载完成后加载对应JS
+            loadRemoteJs(cssKey);
         };
         
         link.onerror = function() {
@@ -327,7 +367,7 @@ function removeOldCustomCss() {
     cssLinkElement = null;
 }
 
-// ✅ 核心优化4：CSS加载控制（优化逻辑顺序，新增提现页面JS加载）
+// ✅ 核心优化4：CSS加载控制（优化逻辑顺序，支持多页面JS加载）
 function loadCurrentPageCss() {
     if (!isTargetDomain()) return;
     
@@ -347,12 +387,8 @@ function loadCurrentPageCss() {
         removeOldCustomCss();
         currentCssKey = newPageType;
         preloadCss(newPageType);
-        // 立即加载JS（shop页面或提现页面）
-        if (newPageType === 'shop') {
-            loadRemoteShopJs();
-        } else if (newPageType === 'settlement') { // 新增提现页面JS加载
-            loadRemoteSettlementJs();
-        }
+        // 立即加载对应JS
+        loadRemoteJs(newPageType);
         return;
     }
     
@@ -361,12 +397,8 @@ function loadCurrentPageCss() {
         loadCss(newPageType);
     }
     
-    // 确保JS加载（shop页面或提现页面）
-    if (newPageType === 'shop') {
-        loadRemoteShopJs();
-    } else if (newPageType === 'settlement') { // 新增提现页面JS加载
-        loadRemoteSettlementJs();
-    }
+    // 确保JS加载
+    loadRemoteJs(newPageType);
 }
 
 // 5. 加载外部JS（保持不变+增加DOM检查）
@@ -563,12 +595,8 @@ function watchRouteChange() {
                         if (newPageType!== currentCssKey) {
                             preloadCss(newPageType);
                         }
-                        // 提前加载JS（shop页面或提现页面）
-                        if (newPageType === 'shop') {
-                            loadRemoteShopJs();
-                        } else if (newPageType === 'settlement') { // 新增提现页面JS加载
-                            loadRemoteSettlementJs();
-                        }
+                        // 提前加载对应JS
+                        loadRemoteJs(newPageType);
                         next();
                     });
                     
@@ -627,12 +655,15 @@ function init() {
     window.lastPageFullPath = '';
     window.mutationDebounceTimer = null;
     
+    // 新增：完全移除返回手势（启动时立即执行）
+    disableAllBackGestures();
+    
     // 等待DOM完全就绪后执行
     const start = () => {
         currentCssKey = getCurrentPageType();
         watchRouteChange();
         loadCurrentPageCss();
-        console.log('脚本初始化完成');
+        console.log('脚本初始化完成（含完全移除返回手势）');
     };
     
     if (document.readyState === 'complete') {
