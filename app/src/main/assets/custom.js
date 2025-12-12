@@ -8,7 +8,8 @@ const PAGE_CSS_MAP = {
     settlement: 'https://server.kexuny.cn/work/tixian.css', // 新增提现页面CSS
     index: 'https://server.kexuny.cn/work/index.css', // 新增首页CSS
     order: 'https://server.kexuny.cn/work/order.css', // 新增订单页面CSS
-    jiesuan: 'https://server.kexuny.cn/work/jiesuan.css' // 新增结算页面CSS
+    jiesuan: 'https://server.kexuny.cn/work/jiesuan.css', // 新增结算页面CSS
+    business: 'https://server.kexuny.cn/work/my.css' // 新增经营页面CSS
 };
 // 新增：远程JS地址映射
 const REMOTE_JS_MAP = {
@@ -16,15 +17,8 @@ const REMOTE_JS_MAP = {
     settlement: 'https://server.kexuny.cn/work/tixian.js',
     index: 'https://server.kexuny.cn/work/index.js', // 新增首页JS
     order: 'https://server.kexuny.cn/work/order.js', // 新增订单JS
-    jiesuan: 'https://server.kexuny.cn/work/jiesuan.js' // 新增结算JS
-};
-
-// 新增：完全移除返回手势核心配置（零容忍拦截）
-const BACK_DISABLE_CONFIG = {
-    edgeThreshold: 40, // 屏幕边缘触发区（px）
-    touchStartX: 0,
-    touchStartY: 0,
-    isEdgeTouch: false
+    jiesuan: 'https://server.kexuny.cn/work/jiesuan.js', // 新增结算JS
+    business: 'https://server.kexuny.cn/work/my.js' // 新增经营页面JS
 };
 
 // 1. 域名校验（保持不变）
@@ -52,6 +46,10 @@ function getCurrentPageType() {
     if (currentFullPath.includes('/shop#/apps/multistore/store/index')) {
         return 'index'; // 首页
     }
+    // 新增经营页面判断
+    if (currentFullPath.includes('/shop#/apps/multistore/store/business')) {
+        return 'business'; // 经营页面
+    }
     if (currentFullPath.includes('/shop#/order/list/all')) {
         return 'order'; // 订单页面
     }
@@ -77,73 +75,6 @@ function getCurrentPageType() {
 // 3. 登录页校验（保持不变）
 function isLoginPage() {
     return getCurrentPageType() === 'login';
-}
-
-// 新增：完全移除所有返回手势（核心拦截逻辑）
-function disableAllBackGestures() {
-    if (!isTargetDomain()) return;
-
-    // 1. 拦截边缘触摸手势（iOS/Android 系统级右滑返回）
-    document.addEventListener('touchstart', (e) => {
-        const touchX = e.touches[0].clientX;
-        const touchY = e.touches[0].clientY;
-        // 标记是否为屏幕左右边缘触发（左边缘右滑/右边缘左滑均拦截）
-        BACK_DISABLE_CONFIG.isEdgeTouch = (touchX < BACK_DISABLE_CONFIG.edgeThreshold) || (touchX > window.innerWidth - BACK_DISABLE_CONFIG.edgeThreshold);
-        BACK_DISABLE_CONFIG.touchStartX = touchX;
-        BACK_DISABLE_CONFIG.touchStartY = touchY;
-    }, { passive: false });
-
-    // 2. 拦截触摸移动（阻止边缘滑动触发返回）
-    document.addEventListener('touchmove', (e) => {
-        if (!BACK_DISABLE_CONFIG.isEdgeTouch) return;
-
-        const deltaX = e.touches[0].clientX - BACK_DISABLE_CONFIG.touchStartX;
-        const deltaY = e.touches[0].clientY - BACK_DISABLE_CONFIG.touchStartY;
-
-        // 拦截水平边缘滑动（优先阻止返回手势，不影响垂直滚动）
-        if (Math.abs(deltaX) > Math.abs(deltaY)) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('完全拦截边缘滑动返回手势');
-        }
-    }, { passive: false }); // passive:false 必须设置，否则无法阻止默认行为
-
-    // 3. 拦截浏览器历史返回（popstate 事件）
-    if (window.history && window.history.pushState) {
-        // 初始化历史记录，阻止首次返回
-        window.history.pushState({ noBack: true }, document.title, window.location.href);
-        // 拦截所有 popstate 触发（包括右滑返回、物理返回键）
-        window.addEventListener('popstate', (e) => {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            // 重置历史记录，防止连续返回
-            window.history.pushState({ noBack: true }, document.title, window.location.href);
-            console.log('完全拦截 popstate 返回事件');
-        }, { capture: true, once: false });
-    }
-
-    // 4. 拦截安卓物理返回键（PakePlus 安卓端兼容）
-    if (window.plus) {
-        plus.key.addEventListener('backbutton', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('完全拦截安卓物理返回键');
-        }, false);
-    }
-
-    // 5. 拦截键盘后退键（Backspace）
-    document.addEventListener('keydown', (e) => {
-        // 仅在非输入状态下拦截 Backspace
-        const activeEl = document.activeElement;
-        const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
-        if (e.key === 'Backspace' && !isInput) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('完全拦截键盘后退键返回');
-        }
-    }, { capture: true });
-
-    console.log('✅ 已完全移除所有返回手势（边缘滑动/物理键/键盘/历史记录）');
 }
 
 // 通用远程JS加载函数（替代原有单个加载函数，支持多页面）
@@ -655,15 +586,12 @@ function init() {
     window.lastPageFullPath = '';
     window.mutationDebounceTimer = null;
     
-    // 新增：完全移除返回手势（启动时立即执行）
-    disableAllBackGestures();
-    
     // 等待DOM完全就绪后执行
     const start = () => {
         currentCssKey = getCurrentPageType();
         watchRouteChange();
         loadCurrentPageCss();
-        console.log('脚本初始化完成（含完全移除返回手势）');
+        console.log('脚本初始化完成');
     };
     
     if (document.readyState === 'complete') {
