@@ -5,21 +5,12 @@ const PAGE_CSS_MAP = {
     login: 'https://server.kexuny.cn/work/midd.css',
     chooseStore: 'https://server.kexuny.cn/work/mdxz.css',
     shop: 'https://server.kexuny.cn/work/shop.css',
-    settlement: 'https://server.kexuny.cn/work/tixian.css', // 新增提现页面CSS
-    index: 'https://server.kexuny.cn/work/index.css', // 新增首页CSS
-    order: 'https://server.kexuny.cn/work/order.css', // 新增订单页面CSS
-    jiesuan: 'https://server.kexuny.cn/work/jiesuan.css', // 新增结算页面CSS
-    business: 'https://server.kexuny.cn/work/my.css' // 新增经营页面CSS
+    settlement: 'https://server.kexuny.cn/work/tixian.css' // 新增提现页面CSS
 };
-// 新增：远程JS地址映射
-const REMOTE_JS_MAP = {
-    shop: 'https://server.kexuny.cn/work/shop.js',
-    settlement: 'https://server.kexuny.cn/work/tixian.js',
-    index: 'https://server.kexuny.cn/work/index.js', // 新增首页JS
-    order: 'https://server.kexuny.cn/work/order.js', // 新增订单JS
-    jiesuan: 'https://server.kexuny.cn/work/jiesuan.js', // 新增结算JS
-    business: 'https://server.kexuny.cn/work/my.js' // 新增经营页面JS
-};
+// 新增：远程shop.js地址
+const REMOTE_SHOP_JS_URL = 'https://server.kexuny.cn/work/shop.js';
+// 新增：提现页面JS地址
+const REMOTE_SETTLEMENT_JS_URL = 'https://server.kexuny.cn/work/tixian.js';
 
 // 1. 域名校验（保持不变）
 function isTargetDomain() {
@@ -31,7 +22,7 @@ function isTargetDomain() {
     return isMatch;
 }
 
-// 2. 页面类型判断（优化：处理hash变化后的路径解析，新增多个页面判断）
+// 2. 页面类型判断（优化：处理hash变化后的路径解析，新增提现页面判断）
 function getCurrentPageType() {
     const pathname = window.location.pathname || '';
     const hash = window.location.hash || '';
@@ -42,24 +33,10 @@ function getCurrentPageType() {
         window.lastPageFullPath = currentFullPath;
     }
     
-    // 新增页面判断逻辑
-    if (currentFullPath.includes('/shop#/apps/multistore/store/index')) {
-        return 'index'; // 首页
-    }
-    // 新增经营页面判断
-    if (currentFullPath.includes('/shop#/apps/multistore/store/business')) {
-        return 'business'; // 经营页面
-    }
-    if (currentFullPath.includes('/shop#/order/list/all')) {
-        return 'order'; // 订单页面
-    }
-    if (currentFullPath.includes('/shop#/apps/multistore/settlement/overview/index')) {
-        return 'jiesuan'; // 结算页面
-    }
-    // 原有提现页面判断
+    // 新增：提现页面判断
     if (currentFullPath.includes('/shop#/apps/multistore/settlement/overview/apply') && 
         currentFullPath.includes('type=goods')) {
-        return 'settlement';
+        return'settlement';
     }
     if (currentFullPath === LOGIN_PAGE_PATH) {
         return 'login';
@@ -77,16 +54,56 @@ function isLoginPage() {
     return getCurrentPageType() === 'login';
 }
 
-// 通用远程JS加载函数（替代原有单个加载函数，支持多页面）
-function loadRemoteJs(jsKey) {
-    if (!isTargetDomain() ||!REMOTE_JS_MAP[jsKey]) return;
-    
-    const REMOTE_JS_URL = REMOTE_JS_MAP[jsKey];
+// 新增：动态加载远程settlement.js文件（避免重复加载+DOM就绪检查）
+function loadRemoteSettlementJs() {
+    if (!isTargetDomain()) return;
     // 检查是否已加载
-    if (document.querySelector(`script[src="${REMOTE_JS_URL}"]`)) {
-        console.log(`远程JS文件${REMOTE_JS_URL}已加载，无需重复加载`);
-        // 强制触发对应函数（兜底）
-        if (jsKey ==='shop' && typeof window.injectBottomNav === 'function') {
+    if (document.querySelector(`script[src="${REMOTE_SETTLEMENT_JS_URL}"]`)) {
+        console.log(`远程JS文件${REMOTE_SETTLEMENT_JS_URL}已加载，无需重复加载`);
+        return;
+    }
+    
+    // 等待DOM完全就绪后加载JS
+    const loadScript = () => {
+        const script = document.createElement('script');
+        script.src = REMOTE_SETTLEMENT_JS_URL;
+        script.type = 'text/javascript';
+        script.async = true;
+        
+        script.onload = function() {
+            console.log(`远程JS文件${REMOTE_SETTLEMENT_JS_URL}加载成功`);
+        };
+        
+        script.onerror = function() {
+            console.error(`远程JS文件${REMOTE_SETTLEMENT_JS_URL}加载失败，1秒后重试`);
+            setTimeout(loadRemoteSettlementJs, 1000);
+        };
+        
+        // 安全插入script（优先head，若无则body）
+        if (document.head) {
+            document.head.appendChild(script);
+        } else if (document.body) {
+            document.body.appendChild(script);
+        } else {
+            setTimeout(loadScript, 200);
+        }
+    };
+    
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        loadScript();
+    } else {
+        document.addEventListener('DOMContentLoaded', loadScript);
+    }
+}
+
+// 新增：动态加载远程shop.js文件（避免重复加载+DOM就绪检查）
+function loadRemoteShopJs() {
+    if (!isTargetDomain()) return;
+    // 检查是否已加载
+    if (document.querySelector(`script[src="${REMOTE_SHOP_JS_URL}"]`)) {
+        console.log(`远程JS文件${REMOTE_SHOP_JS_URL}已加载，无需重复加载`);
+        // 强制触发导航栏注入（兜底）
+        if (typeof window.injectBottomNav === 'function') {
             window.injectBottomNav();
         }
         return;
@@ -95,21 +112,21 @@ function loadRemoteJs(jsKey) {
     // 等待DOM完全就绪后加载JS
     const loadScript = () => {
         const script = document.createElement('script');
-        script.src = REMOTE_JS_URL;
+        script.src = REMOTE_SHOP_JS_URL;
         script.type = 'text/javascript';
         script.async = true;
         
         script.onload = function() {
-            console.log(`远程JS文件${REMOTE_JS_URL}加载成功`);
-            // 立即调用导航栏注入（仅shop页面）
-            if (jsKey ==='shop' && typeof window.injectBottomNav === 'function') {
+            console.log(`远程JS文件${REMOTE_SHOP_JS_URL}加载成功`);
+            // 立即调用导航栏注入
+            if (typeof window.injectBottomNav === 'function') {
                 window.injectBottomNav();
             }
         };
         
         script.onerror = function() {
-            console.error(`远程JS文件${REMOTE_JS_URL}加载失败，1秒后重试`);
-            setTimeout(() => loadRemoteJs(jsKey), 1000);
+            console.error(`远程JS文件${REMOTE_SHOP_JS_URL}加载失败，1秒后重试`);
+            setTimeout(loadRemoteShopJs, 1000);
         };
         
         // 安全插入script（优先head，若无则body）
@@ -161,8 +178,12 @@ function preloadCss(cssKey) {
             cssLinkElement = preloadLink;
             isCssLoaded = true;
             isLoadingCss = false;
-            // 预加载完成后加载对应JS
-            loadRemoteJs(cssKey);
+            // 预加载完成后加载JS（shop页面或提现页面）
+            if (cssKey === 'shop') {
+                loadRemoteShopJs();
+            } else if (cssKey === 'settlement') { // 新增提现页面JS加载
+                loadRemoteSettlementJs();
+            }
         };
         
         preloadLink.onerror = function() {
@@ -214,8 +235,12 @@ function loadCss(cssKey) {
                 isCssLoaded = true;
                 isLoadingCss = false;
                 console.log(`复用缓存的CSS link元素`);
-                // 加载完成后加载对应JS
-                loadRemoteJs(cssKey);
+                // 加载完成后加载JS（shop页面或提现页面）
+                if (cssKey === 'shop') {
+                    loadRemoteShopJs();
+                } else if (cssKey === 'settlement') { // 新增提现页面JS加载
+                    loadRemoteSettlementJs();
+                }
             } catch (e) {
                 console.error(`复用CSS失败：`, e);
                 isLoadingCss = false;
@@ -241,8 +266,12 @@ function loadCss(cssKey) {
             isCssLoaded = true;
             isLoadingCss = false;
             cssLinkElement = link;
-            // 加载完成后加载对应JS
-            loadRemoteJs(cssKey);
+            // 加载完成后加载JS（shop页面或提现页面）
+            if (cssKey === 'shop') {
+                loadRemoteShopJs();
+            } else if (cssKey === 'settlement') { // 新增提现页面提现加载
+                loadRemoteSettlementJs();
+            }
         };
         
         link.onerror = function() {
@@ -298,7 +327,7 @@ function removeOldCustomCss() {
     cssLinkElement = null;
 }
 
-// ✅ 核心优化4：CSS加载控制（优化逻辑顺序，支持多页面JS加载）
+// ✅ 核心优化4：CSS加载控制（优化逻辑顺序，新增提现页面JS加载）
 function loadCurrentPageCss() {
     if (!isTargetDomain()) return;
     
@@ -318,8 +347,12 @@ function loadCurrentPageCss() {
         removeOldCustomCss();
         currentCssKey = newPageType;
         preloadCss(newPageType);
-        // 立即加载对应JS
-        loadRemoteJs(newPageType);
+        // 立即加载JS（shop页面或提现页面）
+        if (newPageType === 'shop') {
+            loadRemoteShopJs();
+        } else if (newPageType === 'settlement') { // 新增提现页面JS加载
+            loadRemoteSettlementJs();
+        }
         return;
     }
     
@@ -328,8 +361,12 @@ function loadCurrentPageCss() {
         loadCss(newPageType);
     }
     
-    // 确保JS加载
-    loadRemoteJs(newPageType);
+    // 确保JS加载（shop页面或提现页面）
+    if (newPageType === 'shop') {
+        loadRemoteShopJs();
+    } else if (newPageType === 'settlement') { // 新增提现页面JS加载
+        loadRemoteSettlementJs();
+    }
 }
 
 // 5. 加载外部JS（保持不变+增加DOM检查）
@@ -526,8 +563,12 @@ function watchRouteChange() {
                         if (newPageType!== currentCssKey) {
                             preloadCss(newPageType);
                         }
-                        // 提前加载对应JS
-                        loadRemoteJs(newPageType);
+                        // 提前加载JS（shop页面或提现页面）
+                        if (newPageType === 'shop') {
+                            loadRemoteShopJs();
+                        } else if (newPageType === 'settlement') { // 新增提现页面JS加载
+                            loadRemoteSettlementJs();
+                        }
                         next();
                     });
                     
